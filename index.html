@@ -1,0 +1,811 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="Upload a client's insurance policy PDFs, photos or Excel; Claude reads them into a policy summary, 12-month premium calendar and coverage shortfall advice.">
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+</head>
+<body>
+<title>Policy Summary 保单摘要</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap">
+<style id="appcss">
+/* Layout: one column of working cards — upload on top, then the report the advisor hands to the client. */
+:root{
+  --bg:#eef2f4; --paper:#ffffff; --ink:#18242e; --muted:#5a6a77; --line:#d5dde3; --soft:#f4f7f9;
+  --accent:#0b6e75; --accent-ink:#ffffff; --accent-soft:#dff0f0;
+  --ok:#1d7a4c; --ok-soft:#e1f3e9; --warn:#946000; --warn-soft:#fff1cf; --bad:#b0291f; --bad-soft:#fde5e2;
+  --unk:#fff2a8; --unk-ink:#5c4c00;
+  --f-body:"Inter","PingFang SC","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif;
+  --f-display:"Space Grotesk","Inter","PingFang SC","Microsoft YaHei",sans-serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f171d; --paper:#17222a; --ink:#e3eaef; --muted:#9aabb8; --line:#2b3a45; --soft:#1d2a33;
+  --accent:#4fb8bf; --accent-ink:#06282b; --accent-soft:#163a3d;
+  --ok:#6fd19c; --ok-soft:#173a29; --warn:#f0c060; --warn-soft:#3a2f12; --bad:#ff8f84; --bad-soft:#41201d;
+  --unk:#4a4212; --unk-ink:#ffe98a; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f171d; --paper:#17222a; --ink:#e3eaef; --muted:#9aabb8; --line:#2b3a45; --soft:#1d2a33;
+  --accent:#4fb8bf; --accent-ink:#06282b; --accent-soft:#163a3d;
+  --ok:#6fd19c; --ok-soft:#173a29; --warn:#f0c060; --warn-soft:#3a2f12; --bad:#ff8f84; --bad-soft:#41201d;
+  --unk:#4a4212; --unk-ink:#ffe98a; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:14px/1.55 var(--f-body)}
+.wrap{max-width:1080px;margin:0 auto;padding-block:16px 40px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:14px}
+.brand{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.brand h1{font:700 24px/1.2 var(--f-display);margin:0;text-wrap:balance}
+.brand span{color:var(--muted)}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:18px;min-width:0}
+h2{font:700 17px/1.3 var(--f-display);margin:0 0 12px;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;text-wrap:balance}
+h2 small{font:400 13px var(--f-body);color:var(--muted)}
+h2 .n{color:var(--accent)}
+.muted{color:var(--muted)} .small{font-size:12.5px}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--muted);font-weight:500}
+input,select,textarea{font:inherit;color:var(--ink);background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:7px 9px;min-width:0}
+textarea{min-height:70px;resize:vertical}
+input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible,.drop:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.drop{border:2px dashed var(--line);border-radius:10px;padding:22px 14px;text-align:center;cursor:pointer;background:var(--soft);display:flex;flex-direction:column;gap:4px;align-items:center}
+.drop.over{border-color:var(--accent);background:var(--accent-soft)}
+.drop b{font:600 15px var(--f-display)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.chip{display:inline-flex;align-items:center;gap:6px;background:var(--accent-soft);border-radius:999px;padding:3px 4px 3px 10px;font-size:12.5px;max-width:100%}
+.chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip button{border:none;background:transparent;color:var(--muted);padding:0 6px;cursor:pointer;font-size:15px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button.btn{font:600 14px var(--f-body);border:1px solid var(--accent);background:var(--paper);color:var(--accent);border-radius:7px;padding:8px 14px;cursor:pointer}
+button.btn.primary,button.btn.on{background:var(--accent);color:var(--accent-ink)}
+button.btn:disabled{opacity:.5;cursor:not-allowed}
+.status{font-size:13px;color:var(--muted)} .status.err{color:var(--bad)}
+.banner{background:var(--warn-soft);color:var(--warn);border-radius:8px;padding:8px 12px;font-size:13px}
+.tbl{overflow-x:auto;min-width:0}
+table{border-collapse:collapse;width:100%;min-width:540px;font-variant-numeric:tabular-nums}
+th,td{border:1px solid var(--line);padding:6px 8px;text-align:center;vertical-align:middle}
+th{background:var(--accent-soft);font-weight:600}
+td.lbl{text-align:left;font-weight:600;background:var(--soft);white-space:nowrap}
+td.total{background:var(--soft);font-weight:700}
+.unk{background:var(--unk);color:var(--unk-ink)}
+.none{color:var(--muted)}
+.ml{white-space:pre-line}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px}
+.kpi{border:1px solid var(--line);border-radius:8px;padding:8px 12px}
+.kpi b{display:block;font:700 20px var(--f-display);font-variant-numeric:tabular-nums}
+.kpi span{color:var(--muted);font-size:12px}
+.cal{display:grid;grid-template-columns:repeat(auto-fill,minmax(165px,1fr));gap:10px}
+.mon{border:1px solid var(--line);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:3px}
+.mon h3{margin:0 0 2px;font:600 14px var(--f-display);display:flex;justify-content:space-between}
+.mon h3 span{color:var(--accent);font-variant-numeric:tabular-nums}
+.due{font-size:12.5px;display:flex;justify-content:space-between;gap:6px;font-variant-numeric:tabular-nums}
+.est{color:var(--warn);font-size:11px;font-weight:600}
+.ann{font-size:11.5px;color:var(--accent)}
+.pill{display:inline-block;border-radius:999px;padding:1px 9px;font-size:12px;font-weight:600}
+.p-ok{background:var(--ok-soft);color:var(--ok)} .p-warn{background:var(--warn-soft);color:var(--warn)}
+.p-bad{background:var(--bad-soft);color:var(--bad)} .p-unk{background:var(--unk);color:var(--unk-ink)}
+.gapb{color:var(--bad);font-weight:700}
+.income{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;padding:10px;border-radius:8px;background:var(--accent-soft)}
+.income input{width:130px}
+ul.list{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:5px}
+ul.confirm{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:5px}
+ul.confirm li{background:var(--unk);color:var(--unk-ink);padding:5px 10px;border-radius:5px}
+ul.confirm li.ok{background:var(--ok-soft);color:var(--ok)}
+details.edit summary{cursor:pointer;font-weight:600;color:var(--accent)}
+details.edit input,details.edit select{width:100%;padding:4px 6px}
+.rhead{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;align-items:flex-start}
+.rhead h2{margin:0;font-size:21px}
+.foot{font-size:12px;color:var(--muted)}
+.recent{display:flex;flex-direction:column;gap:6px}
+.recent .item{display:flex;justify-content:space-between;align-items:center;gap:8px;border:1px solid var(--line);border-radius:7px;padding:6px 10px;flex-wrap:wrap}
+.linkbtn{border:none;background:none;color:var(--accent);cursor:pointer;font:inherit;padding:2px 4px}
+.linkbtn.danger{color:var(--bad)}
+.apikey{margin-top:12px;padding:12px;border-radius:8px;background:var(--soft);border:1px solid var(--line)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+  <div class="brand"><h1>Policy Summary 保单摘要</h1><span>上传保单 → 一键读取 → 摘要、缴费日历、保障缺口</span></div>
+
+  <section class="card noexport" id="uploadCard">
+    <h2><span class="n">①</span> 上传保单 <small>每份报告最多 4 份保单 · PDF · 照片/截图 (JPG, PNG) · Excel / CSV · 或贴上文字</small></h2>
+    <div class="drop" id="drop" tabindex="0" role="button" aria-label="选择或拖入文件">
+      <b>点这里选文件，或把文件拖进来</b>
+      <span class="muted small">可以一次放多份：保单、利益说明、比较表、截图</span>
+    </div>
+    <input type="file" id="file" multiple accept=".pdf,.xlsx,.xls,.csv,.txt,image/jpeg,image/png,image/webp" hidden>
+    <div class="chips" id="chips"></div>
+    <div class="grid2" style="margin-top:12px">
+      <label class="f">客户名字 Client name (可留空，AI 会从文件读取)<input id="cName" type="text" placeholder="例: Jarene Khoo"></label>
+      <label class="f">月收入 Monthly income (RM，用来计算人寿/重病建议额)<input id="cIncome" type="number" min="0" step="100" placeholder="不知道可留空"></label>
+    </div>
+    <div id="keyBox" class="apikey" hidden>
+      <label class="f">Anthropic API key (只存在你的浏览器，不会上传到别处)
+        <span class="row" style="gap:6px"><input id="apiKey" type="password" autocomplete="off" placeholder="sk-ant-..." style="flex:1;min-width:200px"><button class="btn" id="keyToggle" type="button">显示</button></span>
+      </label>
+      <label class="row small muted" style="gap:6px;margin-top:6px"><input type="checkbox" id="keyRemember" checked> 记住这部装置 (下次不用再贴)</label>
+      <p class="small muted" style="margin:6px 0 0">还没有 key？到 <b>console.anthropic.com</b> → API Keys 建立一个，并充值少量额度。每份检视大约 RM0.50–2，按文件大小计。</p>
+    </div>
+    <label class="f" style="margin-top:12px">贴上文字 (网页链接内容、WhatsApp 讯息、保单资料)<textarea id="paste" placeholder="链接无法直接打开：请打开网页，复制内容后贴在这里。"></textarea></label>
+    <div class="row" style="margin-top:12px">
+      <button class="btn primary" id="readBtn">读取保单 Read policies</button>
+      <button class="btn" id="stopBtn" hidden>停止 Stop</button>
+      <span class="status" id="status" role="status"></span>
+    </div>
+  </section>
+
+  <section class="card" id="report">
+    <div class="banner noexport" id="sampleBanner">示例报告 Sample：以下是虚构客户的示范数据。上传文件后会换成你的客户。</div>
+    <div class="rhead" style="margin-top:10px">
+      <div><h2 id="rTitle"></h2><div class="muted small" id="rMeta"></div></div>
+      <div class="row noexport">
+        <span id="scBtns" class="row"></span>
+      </div>
+    </div>
+    <div class="row noexport" style="margin-top:12px">
+      <button class="btn" id="copyBtn">复制摘要 (WhatsApp)</button>
+      <button class="btn" id="saveBtn" hidden>下载报告 (HTML)</button>
+      <button class="btn" id="keepBtn">存到最近记录</button>
+      <span class="status" id="actMsg" role="status"></span>
+    </div>
+    <textarea id="copyFallback" class="noexport" hidden readonly style="width:100%;margin-top:8px;min-height:140px"></textarea>
+
+    <details class="edit noexport" style="margin-top:14px"><summary>修改数字 Edit figures (AI 读错或找不到时用)</summary><div class="tbl" id="editGrid" style="margin-top:10px"></div></details>
+  </section>
+
+  <section class="card"><h2><span class="n">1</span> 保单总览 <small>Policy Summary · <span class="scName"></span></small></h2><div class="tbl" id="summary"></div></section>
+  <section class="card"><h2><span class="n">2</span> 保障利益 <small>Benefits</small></h2><div class="tbl" id="benefits"></div></section>
+  <section class="card"><h2><span class="n">3</span> 每月缴费日历 <small>Monthly Payment Calendar · <span class="scName"></span></small></h2><div class="kpis" id="calKpi"></div><div class="cal" id="cal"></div><p class="foot" id="calNote"></p></section>
+  <section class="card"><h2><span class="n">4</span> 保障缺口分析 <small>Coverage Shortfall</small></h2>
+    <div class="income noexport"><label for="inc">月收入 Monthly income: RM</label><input id="inc" type="number" min="0" step="100" placeholder="请输入"><span class="muted small">改了马上重新计算</span></div>
+    <p class="muted small" id="incNote"></p>
+    <div class="tbl" id="gap"></div>
+    <h3 style="font:600 15px var(--f-display);margin:16px 0 8px">建议 Advice</h3><ul class="list" id="advice"></ul>
+  </section>
+  <section class="card" id="recBox"><h2><span class="n">5</span> 顾问建议 <small>Recommendations in the document</small></h2><ul class="list" id="rec"></ul></section>
+  <section class="card"><h2><span class="n">6</span> 需确认资料 <small>黄色 = 文件里找不到或不清楚，没有猜测</small></h2><ul class="confirm" id="confirm"></ul></section>
+  <section class="card foot" id="footer"></section>
+
+  <section class="card noexport"><h2>最近记录 <small>Recent reviews · 只存在这部装置</small></h2><div class="recent" id="recent"></div></section>
+</div>
+
+<script>
+// ---------- constants ----------
+const PDFJS = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+const PDFWORKER = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+const XLSXJS = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+const MODES = {monthly:{n:12,step:1,zh:'月'}, quarterly:{n:4,step:3,zh:'季'}, 'half-yearly':{n:2,step:6,zh:'半年'}, yearly:{n:1,step:12,zh:'年'}};
+const DEF_B = {life_x:10, ci_x:5, med_min:1500000, pa_min:100000, prem_ok:0.10, prem_max:0.15};
+const RECENT_KEY = 'policySummary.recent.v1';
+const MAX_POL = 4; // review format: up to 4 policies per report
+const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+
+// ---------- sample (fictional client, real structure) ----------
+const SAMPLE = {
+  meta:{report_date: todayISO(), sources:["示例文件"], sample:true},
+  client:{name:"示例客户 Sample Client", age:28, gender:"F", monthly_income:null},
+  scenarios:[
+    {id:"current", label:"现有保单 Current", policies:[
+      {name:"GE-SPE", insurer:"Great Eastern", policy_no_last4:"0001", type:"医疗保险", effective_date:"2019-09-25", owner:"示例客户", insured:"示例客户", beneficiary:null,
+       premium:{amount:250, mode:"monthly", due_day:null}, life:60000,
+       ci:[{amount:30000,desc:"50疾病",kind:"general"},{amount:50000,desc:"女人保",kind:"specific"}],
+       medical:{annual_limit:990000, lifetime_limit:"无限", room_board:"RM150/180天", pre_post:"90天/90天", deductible:0, panel:"", name:""},
+       hospital_income:"RM50(政府)", waiver:true,
+       accident:{death:30000, disability:20000, medical:"RM3,000/年\nRM500/意外", weekly_indemnity:"MC: RM150/星期\n轻伤: RM35/星期"}, other:[]},
+      {name:"GE-SPY", insurer:"Great Eastern", policy_no_last4:"0002", type:"医疗保险", effective_date:"2025-10-16", owner:"示例客户", insured:"示例客户", beneficiary:null,
+       premium:{amount:350, mode:"monthly", due_day:null}, life:100000,
+       ci:[{amount:100000,desc:"188疾病",kind:"general"},{amount:100000,desc:"女人保",kind:"specific"}],
+       medical:{annual_limit:15000000, lifetime_limit:"无限", room_board:"RM200/365天", pre_post:"90天/200天", deductible:2500, panel:"TGJ Clinic&Hospital", name:"GMV"},
+       hospital_income:"RM250(政府)\nRM50(私人)", waiver:true,
+       accident:{death:20000, disability:0, medical:"", weekly_indemnity:""}, other:["流感/蚊症/支气管炎门诊: RM500","MRI/PET Scan: RM5,000"]}
+    ]},
+    {id:"proposed", label:"调整后 Proposed", policies:[
+      {name:"GE-SPE", insurer:"Great Eastern", policy_no_last4:"0001", type:"医疗保险", effective_date:"2019-09-25", owner:"示例客户", insured:"示例客户", beneficiary:null,
+       premium:{amount:100, mode:"monthly", due_day:null}, life:60000,
+       ci:[{amount:30000,desc:"50疾病",kind:"general"},{amount:50000,desc:"女人保",kind:"specific"}],
+       medical:false, hospital_income:"", waiver:null,
+       accident:{death:20000, disability:20000, medical:"RM500/意外", weekly_indemnity:"MC: RM150/星期\n轻伤: RM35/星期"}, other:[]},
+      {name:"GE-SPY", insurer:"Great Eastern", policy_no_last4:"0002", type:"医疗保险", effective_date:"2025-10-16", owner:"示例客户", insured:"示例客户", beneficiary:null,
+       premium:{amount:250, mode:"monthly", due_day:null}, life:40000,
+       ci:[{amount:100000,desc:"188疾病",kind:"general"}],
+       medical:{annual_limit:3000000, lifetime_limit:"无限", room_board:"RM200/365天", pre_post:"90天/200天", deductible:2500, panel:"所有Panel医院", name:"SHP"},
+       hospital_income:"RM350(政府)\nRM150(私人)", waiver:true,
+       accident:{death:20000, disability:0, medical:"", weekly_indemnity:""}, other:["流感/蚊症/支气管炎门诊: RM500","MRI/PET Scan: RM5,000"]}
+    ]}
+  ],
+  advisor_recommendations:["GE-SPY 医药卡换成 SHP RM3,000,000 年度限额 (自付额 RM2,500)，不再局限于指定医院；人寿减至 RM40,000，取消女人保，保费调整至 RM250/月。","SHP 生效后取消 GE-SPE 的医药卡，保费调整至 RM100/月。","处理好受益人。"],
+  to_confirm:[{item:"GE-SPE 调整后免缴交利益 (Waiver)", why:"调整后表格空白，现有保单有"}]
+};
+
+// ---------- state ----------
+let DATA = JSON.parse(JSON.stringify(SAMPLE));
+let scIdx = 0;
+let income = null;
+let files = [];
+let ctl = null;
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const isNum = v => typeof v === 'number' && isFinite(v);
+const rm = v => isNum(v) ? 'RM' + Math.round(v).toLocaleString('en-MY') : '';
+const B = () => Object.assign({}, DEF_B, DATA.benchmarks || {});
+
+// ---------- normalisation (never invent: unparseable -> null) ----------
+function num(v){ if (isNum(v)) return v; if (v === false || v === 0) return 0; if (v == null || v === '') return null;
+  const m = String(v).replace(/,/g,'').match(/-?\d+(\.\d+)?/); if (!m) return null; let n = parseFloat(m[0]);
+  if (/mil|百万|million/i.test(v)) n *= 1e6; else if (/(\d)\s*k\b|千/i.test(v)) n *= 1e3; return n; }
+function mode(v){ v = String(v||'').toLowerCase(); if (/month|月/.test(v) && !/半|half|6/.test(v)) return 'monthly'; if (/quarter|季|3/.test(v)) return 'quarterly'; if (/half|半年|6/.test(v)) return 'half-yearly'; if (/year|annual|年/.test(v)) return 'yearly'; return null; }
+function date(v){ if (!v) return null; v = String(v).trim(); let m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(v); if (m) return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;
+  m = /^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/.exec(v); if (m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`; return null; }
+function normPolicy(p){
+  p = Object.assign({}, p); delete p.ic; delete p.nric; delete p.policy_no;
+  if (p.policy_no_last4) p.policy_no_last4 = String(p.policy_no_last4).replace(/\s/g,'').slice(-4);
+  p.effective_date = date(p.effective_date);
+  const pr = p.premium || {}; p.premium = {amount:num(pr.amount), mode:mode(pr.mode), due_day: num(pr.due_day)};
+  if (p.premium.due_day != null && (p.premium.due_day < 1 || p.premium.due_day > 31)) p.premium.due_day = null;
+  p.life = p.life === false ? 0 : num(p.life);
+  p.ci = p.ci == null ? null : (Array.isArray(p.ci) ? p.ci.map(c => ({amount:num(c.amount), desc:c.desc||'', kind:c.kind==='specific'?'specific':'general'})) : []);
+  if (p.medical && typeof p.medical === 'object') p.medical = Object.assign({}, p.medical, {annual_limit:num(p.medical.annual_limit), deductible:num(p.medical.deductible)});
+  else if (p.medical !== false) p.medical = null;
+  if (p.accident && typeof p.accident === 'object') p.accident = Object.assign({}, p.accident, {death:num(p.accident.death)});
+  else if (p.accident !== false) p.accident = null;
+  if (p.waiver !== true && p.waiver !== false) p.waiver = null;
+  if (p.other != null && !Array.isArray(p.other)) p.other = [String(p.other)];
+  return p;
+}
+function normData(d){
+  d = d || {}; d.meta = Object.assign({report_date: todayISO()}, d.meta || {}); d.client = d.client || {};
+  d.scenarios = (Array.isArray(d.scenarios) ? d.scenarios : []).filter(s => s && Array.isArray(s.policies) && s.policies.length)
+    .map((s,i) => ({id:s.id||('s'+i), label:s.label || (i ? '调整后 Proposed' : '现有保单 Current'), policies:s.policies.map(normPolicy)}));
+  d.advisor_recommendations = Array.isArray(d.advisor_recommendations) ? d.advisor_recommendations : [];
+  d.to_confirm = Array.isArray(d.to_confirm) ? d.to_confirm : [];
+  d.scenarios.forEach(s => { if (s.policies.length > MAX_POL) {
+    const extra = s.policies.slice(MAX_POL).map(p => p.name || '?');
+    s.policies = s.policies.slice(0, MAX_POL);
+    d.to_confirm.unshift({item:`${s.label}: 找到 ${MAX_POL + extra.length} 份保单，这份报告只放前 ${MAX_POL} 份`, why:`未包括: ${extra.join('、')} — 请另做一份检视`});
+  }});
+  d.client.monthly_income = num(d.client.monthly_income);
+  return d;
+}
+function autoConfirm(){
+  const out = new Set(), seen = new Set();
+  DATA.scenarios.forEach(sc => sc.policies.forEach(p => {
+    const tag = DATA.scenarios.length > 1 ? `[${sc.label.split(' ')[0]}] ${p.name}` : p.name;
+    const pr = p.premium || {};
+    if (!isNum(pr.amount)) out.add(`${tag}: 保费金额未找到`);
+    if (!pr.mode) out.add(`${tag}: 缴费方式未找到 (月/季/半年/年)`);
+    if (!seen.has(p.name)) { seen.add(p.name);
+      if (!p.effective_date) out.add(`${p.name}: 生效日期未找到`);
+      else if (!isNum(pr.due_day)) out.add(`${p.name}: 缴费日未写明，日历按生效日 ${+p.effective_date.slice(8)} 号估算`);
+      if (!p.beneficiary) out.add(`${p.name}: 受益人空白或未找到`);
+    }
+    [['life','人寿'],['ci','重病'],['medical','医药卡'],['waiver','免缴交'],['accident','意外']].forEach(([k,zh]) => { if (p[k] == null) out.add(`${tag}: ${zh}资料未找到，请确认`); });
+  }));
+  return [...out];
+}
+
+// ---------- calculations ----------
+function parseD(s){ const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s||''); return m ? {y:+m[1], m:+m[2], d:+m[3]} : null; }
+const fmtDate = s => { const p = parseD(s); return p ? `${p.d}/${p.m}/${p.y}` : null; };
+const annualPrem = p => { const pr = p.premium||{}, md = MODES[pr.mode]; return (isNum(pr.amount) && md) ? pr.amount*md.n : null; };
+const monthlyEq = p => { const a = annualPrem(p); return a == null ? null : a/12; };
+const sumMonthly = sc => sc.policies.map(monthlyEq).filter(isNum).reduce((a,b)=>a+b,0);
+const ciGeneral = p => (p.ci||[]).filter(c => c.kind !== 'specific' && isNum(c.amount)).reduce((s,c)=>s+c.amount,0);
+const premTxt = p => { const pr = p.premium||{}; return isNum(pr.amount) ? `${rm(pr.amount)}/${(MODES[pr.mode]||{}).zh||'?'}` : null; };
+
+function gapFor(sc){
+  const b = B(), P = sc.policies, ann = income ? income*12 : null, unknown = f => P.some(p => f(p) == null);
+  const life = P.reduce((s,p)=>s+(isNum(p.life)?p.life:0),0), ci = P.reduce((s,p)=>s+ciGeneral(p),0);
+  const meds = P.filter(p => p.medical && typeof p.medical === 'object');
+  const medMax = meds.reduce((m,p)=>Math.max(m, isNum(p.medical.annual_limit)?p.medical.annual_limit:0),0);
+  const pa = P.reduce((s,p)=>s+(p.accident && isNum(p.accident.death)?p.accident.death:0),0);
+  const waiver = P.some(p=>p.waiver===true), prem = sumMonthly(sc)*12;
+  const st = (cur,need) => need == null ? ['p-unk','需要收入'] : cur >= need ? ['p-ok','足够'] : cur >= need*0.5 ? ['p-warn','不足'] : ['p-bad','严重不足'];
+  const row = (key,label,rule,cur,need,partial,extra) => Object.assign({key,label,rule,cur,need,gap:need==null?null:Math.max(0,need-cur),st:st(cur,need),partial}, extra||{});
+  let pst = ['p-unk','需要收入'], pct = null;
+  if (ann){ pct = prem/ann; pst = pct<=b.prem_ok?['p-ok','轻松']:pct<=b.prem_max?['p-warn','偏高']:['p-bad','过高']; }
+  return [
+    row('life','人寿/永久残废 Life/TPD',`年收入 × ${b.life_x}`,life,ann?ann*b.life_x:null,unknown(p=>p.life)),
+    row('ci','重病 Critical Illness',`年收入 × ${b.ci_x}`,ci,ann?ann*b.ci_x:null,unknown(p=>p.ci)),
+    row('med','医药卡年度限额 Medical',`≥ ${rm(b.med_min)}`,medMax,b.med_min,unknown(p=>p.medical),{meds}),
+    row('pa','意外死亡 Personal Accident',`≥ ${rm(b.pa_min)}`,pa,b.pa_min,unknown(p=>p.accident)),
+    {key:'waiver',label:'免缴交 Waiver',rule:'有',cur:waiver?'有':'没有',need:'有',gap:null,st:waiver?['p-ok','有']:['p-bad','没有'],text:true},
+    {key:'prem',label:'保费负担 Premium vs income',rule:`≤ ${Math.round(b.prem_max*100)}% 年收入`,cur:prem,need:ann?ann*b.prem_max:null,gap:null,st:pst,pct},
+  ];
+}
+
+// ---------- rendering ----------
+const UNK = '未找到';
+function cell(v, fmt){
+  if (v === null || v === undefined) return `<td class="unk">${UNK}</td>`;
+  if (v === false || v === 0 || v === '' || (Array.isArray(v) && !v.length)) return `<td class="none">—</td>`;
+  return `<td class="ml">${fmt ? fmt(v) : esc(v)}</td>`;
+}
+function sumCell(vals, suffix='', note=''){
+  const n = note ? `<br><small style="font-weight:400">${note}</small>` : '';
+  if (vals.some(v => v == null)) return `<td class="total unk">≥ ${rm(vals.filter(isNum).reduce((a,b)=>a+b,0))}${suffix}<br><small>部分未知</small>${n}</td>`;
+  return `<td class="total">${rm(vals.reduce((a,b)=>a+(isNum(b)?b:0),0))}${suffix}${n}</td>`;
+}
+function renderHeader(){
+  const c = DATA.client||{}, m = DATA.meta||{};
+  $('rTitle').textContent = `保单检视 — ${c.name || '客户'}`;
+  const bits = []; if (c.age) bits.push(`年龄 ${esc(c.age)}`); bits.push(`日期 ${fmtDate(m.report_date)||'-'}`);
+  if (m.sources && m.sources.length) bits.push(`资料: ${m.sources.map(esc).join('、')}`);
+  $('rMeta').innerHTML = bits.join(' · ');
+  $('scBtns').innerHTML = DATA.scenarios.length > 1 ? DATA.scenarios.map((s,i)=>`<button class="btn ${i===scIdx?'on':''}" data-i="${i}">${esc(s.label)}</button>`).join('') : '';
+  $('scBtns').querySelectorAll('button').forEach(b => b.onclick = () => { scIdx = +b.dataset.i; renderAll(); });
+  document.querySelectorAll('.scName').forEach(e => e.textContent = DATA.scenarios[scIdx].label);
+  $('sampleBanner').hidden = !(m.sample);
+}
+function renderSummary(sc){
+  const P = sc.policies;
+  const rows = [['保险公司 Insurer',p=>p.insurer],['保单号码 (尾数)',p=>p.policy_no_last4?'…'+p.policy_no_last4:p.policy_no_last4],['保单种类 Type',p=>p.type],
+    ['生效日期 Start',p=>fmtDate(p.effective_date)],['投保人 Owner',p=>p.owner],['受保人 Insured',p=>p.insured],['受益人 Beneficiary',p=>p.beneficiary||null],['保费 Premium',premTxt]];
+  $('summary').innerHTML = `<table><tr><th></th>${P.map(p=>`<th>${esc(p.name)}</th>`).join('')}</tr>${rows.map(([l,f])=>`<tr><td class="lbl">${l}</td>${P.map(p=>cell(f(p))).join('')}</tr>`).join('')}</table>`;
+}
+function renderBenefits(sc){
+  const P = sc.policies, many = P.length > 1;
+  const med = p => p.medical == null ? null : (p.medical === false ? false : [
+    `一年: ${isNum(p.medical.annual_limit)?rm(p.medical.annual_limit):'?'}`, p.medical.lifetime_limit?`终身: ${p.medical.lifetime_limit}`:'',
+    p.medical.room_board?`房费: ${p.medical.room_board}`:'', p.medical.pre_post?`前后费用: ${p.medical.pre_post}`:'',
+    isNum(p.medical.deductible)&&p.medical.deductible>0?`自付额: ${rm(p.medical.deductible)}`:'', p.medical.panel?`医院: ${p.medical.panel}`:'', p.medical.name?`(${p.medical.name})`:''].filter(Boolean).map(esc).join('\n'));
+  const ciTxt = p => p.ci == null ? null : (p.ci.length ? p.ci.map(c=>`${rm(c.amount)||'?'}${c.desc?`(${esc(c.desc)})`:''}`).join('\n') : false);
+  const acc = k => p => p.accident == null ? null : (p.accident === false ? false : (p.accident[k] ?? false));
+  const rows = [
+    ['1','死亡/永久残废 Death/TPD',p=>p.life,rm,P.map(p=>p.life)],
+    ['2','病症保障 Critical Illness',ciTxt,v=>v,P.map(p=>p.ci==null?null:ciGeneral(p)),'一般重病 (不含女性/特定)'],
+    ['3','医药卡 Medical Card',med,v=>v],
+    ['4','住院津贴 Hospital Income',p=>p.hospital_income],
+    ['5','免缴交利益 Waiver',p=>p.waiver==null?null:(p.waiver?'有':false)],
+    ['6','意外死亡 Accidental Death',acc('death'),rm,P.map(acc('death')).map(v=>v===false?0:v)],
+    ['','意外残废 Accidental Disability',acc('disability'),v=>isNum(v)?rm(v):esc(v)],
+    ['','意外医药费 Accident Medical',acc('medical')],
+    ['','周津贴 Weekly Indemnity',acc('weekly_indemnity')],
+    ['7','其他 Others',p=>p.other==null?null:(p.other.length?p.other.map(esc).join('\n'):false),v=>v],
+  ];
+  let h = `<table><tr><th>No</th><th>保障利益</th>${P.map(p=>`<th>${esc(p.name)}</th>`).join('')}${many?'<th>合计 Total</th>':''}</tr>`;
+  for (const [no,l,f,fmt,sums,note] of rows){
+    h += `<tr><td>${no}</td><td class="lbl">${l}</td>${P.map(p=>cell(f(p),fmt)).join('')}`;
+    if (many) h += sums ? sumCell(sums,'',note) : '<td class="total"></td>';
+    h += '</tr>';
+  }
+  h += `<tr><td></td><td class="lbl">总保费 Premium</td>${P.map(p=>cell(premTxt(p))).join('')}${many?sumCell(P.map(monthlyEq),'/月'):''}</tr></table>`;
+  $('benefits').innerHTML = h;
+}
+function renderCalendar(sc){
+  const rd = parseD(DATA.meta.report_date) || parseD(todayISO());
+  const months = Array.from({length:12}, (_,i) => { const m0 = rd.m-1+i; return {y:rd.y+Math.floor(m0/12), m:m0%12+1, items:[], ann:[]}; });
+  const unplaced = [];
+  sc.policies.forEach(p => {
+    const pr = p.premium||{}, md = MODES[pr.mode], st = parseD(p.effective_date);
+    months.forEach(M => { if (st && st.m === M.m) M.ann.push(p.name); });
+    if (!isNum(pr.amount) || !md || (md.step > 1 && !st)) { unplaced.push(p.name); return; }
+    const day = isNum(pr.due_day) ? pr.due_day : (st ? st.d : null), est = !isNum(pr.due_day);
+    months.forEach(M => { if (md.step === 1 || ((M.m - st.m + 12) % md.step === 0)) M.items.push({name:p.name, amt:pr.amount, day, est}); });
+  });
+  const totals = months.map(M => M.items.reduce((s,x)=>s+x.amt,0)), yr = totals.reduce((a,b)=>a+b,0);
+  const S = DATA.scenarios;
+  $('calKpi').innerHTML = `<div class="kpi"><span>未来12个月合计</span><b>${rm(yr)}</b></div><div class="kpi"><span>平均每月</span><b>${rm(yr/12)}</b></div><div class="kpi"><span>最高月份</span><b>${rm(Math.max(...totals))}</b></div>`
+    + (S.length > 1 ? `<div class="kpi"><span>${esc(S[0].label.split(' ')[0])} → ${esc(S[S.length-1].label.split(' ')[0])} (每月)</span><b>${rm(sumMonthly(S[0]))} → ${rm(sumMonthly(S[S.length-1]))}</b></div>` : '');
+  $('cal').innerHTML = months.map((M,i) => `<div class="mon"><h3>${M.y}年${M.m}月 <span>${rm(totals[i])||'RM0'}</span></h3>${
+    M.items.sort((a,b)=>(a.day||99)-(b.day||99)).map(x=>`<div class="due"><span>${esc(x.name)} <span class="muted">${x.day?x.day+'号':'日期?'}</span>${x.est?' <span class="est">估</span>':''}</span><span>${rm(x.amt)}</span></div>`).join('') || '<div class="due muted">无缴费</div>'
+  }${M.ann.length?`<div class="ann">周年日: ${M.ann.map(esc).join('、')} (医药卡保费可能调整)</div>`:''}</div>`).join('');
+  const notes = [];
+  if (months.some(M => M.items.some(x => x.est))) notes.push('“估” = 文件没写缴费日，按生效日推算，请向保险公司或客户确认。');
+  if (unplaced.length) notes.push(`未排入日历 (缺保费或缴费方式): ${unplaced.map(esc).join('、')}`);
+  $('calNote').innerHTML = notes.join('<br>');
+}
+function renderGap(){
+  const S = DATA.scenarios, G = S.map(gapFor);
+  let h = `<table><tr><th>项目</th><th>标准 Benchmark</th><th>建议额 Target</th>${S.map(s=>`<th>${esc(s.label)}</th>`).join('')}</tr>`;
+  G[0].forEach((r,i) => {
+    const tgt = r.need == null ? '<span class="pill p-unk">输入收入</span>' : (isNum(r.need) ? (r.key==='prem' ? `≤ ${rm(r.need)}/年` : rm(r.need)) : esc(r.need));
+    h += `<tr><td class="lbl">${r.label}</td><td>${r.rule}</td><td>${tgt}</td>`;
+    G.forEach(g => { const x = g[i]; let v;
+      if (x.text) v = esc(x.cur);
+      else if (x.key === 'prem') v = `${rm(x.cur)}/年` + (x.pct != null ? ` (${(x.pct*100).toFixed(1)}%)` : '');
+      else v = rm(x.cur) + (x.partial ? ' <small>(部分未知)</small>' : '') + (x.gap ? `<br><span class="gapb">缺 ${rm(x.gap)}</span>` : '');
+      h += `<td>${v}<br><span class="pill ${x.st[0]}">${x.st[1]}</span></td>`; });
+    h += '</tr>';
+  });
+  $('gap').innerHTML = h + '</table>';
+  $('incNote').textContent = income ? `计算用月收入 RM${income.toLocaleString('en-MY')} (年收入 ${rm(income*12)})` : '未提供收入：人寿与重病建议额要输入月收入后才计算 (不会猜测)。';
+  renderAdvice(G[scIdx]);
+}
+function renderAdvice(g){
+  const b = B(), sc = DATA.scenarios[scIdx], A = [], by = k => g.find(x => x.key === k);
+  const life = by('life'), ci = by('ci'), med = by('med'), pa = by('pa'), wv = by('waiver'), pr = by('prem');
+  if (!income) A.push('先输入客户月收入，才能计算人寿与重病的建议额。');
+  if (life.gap) A.push(`人寿/永久残废不足：建议增加约 ${rm(life.gap)} (标准：年收入 ×${b.life_x}，替代收入、还清债务)。`);
+  if (ci.gap) A.push(`重病保障不足：建议增加约 ${rm(ci.gap)} (标准：年收入 ×${b.ci_x})。女性/特定疾病保障不计入一般重病额。`);
+  if (!med.meds.length) A.push('没有医药卡：住院费用要全部自付，优先补上医药卡。');
+  else {
+    if (med.gap) A.push(`医药卡年度限额 ${rm(med.cur)} 偏低：建议至少 ${rm(b.med_min)}，应付癌症、心脏手术等高额治疗。`);
+    if (med.meds.length > 1) A.push(`持有 ${med.meds.length} 张医药卡，保障重叠。多张卡可协调理赔，但总赔付不超过实际医药费；检视是否需要全部保留以节省保费。`);
+    med.meds.forEach(p => { const d = p.medical.deductible;
+      if (isNum(d) && d > 0) A.push(`${esc(p.name)} 医药卡有自付额 ${rm(d)}：每次住院先自付这笔钱，确认客户有应急金。`);
+      if (p.medical.panel && /clinic|指定|TGJ|specific/i.test(p.medical.panel)) A.push(`${esc(p.name)} 医药卡限于 ${esc(p.medical.panel)}：确认客户常去的医院在名单内。`); });
+  }
+  if (pa.gap) A.push(`意外保障 ${rm(pa.cur)}，低于建议 ${rm(b.pa_min)}；意外险保费较低，可考虑提高。`);
+  if (wv.cur !== '有') A.push('没有免缴交利益 (Waiver)：患重病或残废后保费仍要继续缴，建议加上。');
+  if (pr.pct != null && pr.pct > b.prem_max) A.push(`保费占年收入 ${(pr.pct*100).toFixed(1)}%，高于 ${Math.round(b.prem_max*100)}%：优先保留医药卡与重病，减少重叠保障。`);
+  const noBen = sc.policies.filter(p => !p.beneficiary);
+  if (noBen.length) A.push(`受益人未填写 (${noBen.map(p=>esc(p.name)).join('、')})：建议办理提名 (Nomination)，理赔金能快速交给指定家人。`);
+  if (!A.length) A.push('以上标准下没有明显缺口，建议每年检视一次。');
+  $('advice').innerHTML = A.map(a => `<li>${a}</li>`).join('');
+}
+function renderRest(){
+  const rec = DATA.advisor_recommendations;
+  $('recBox').hidden = !rec.length; $('rec').innerHTML = rec.map(r => `<li>${esc(r)}</li>`).join('');
+  const ai = DATA.to_confirm.map(c => typeof c === 'string' ? c : `${c.item||''}${c.why?' — '+c.why:''}`);
+  const all = [...new Set([...ai, ...autoConfirm()])];
+  $('confirm').innerHTML = all.length ? all.map(c => `<li>${esc(c)}</li>`).join('') : '<li class="ok">没有需要确认的资料。</li>';
+  const b = B();
+  $('footer').innerHTML = `本报告仅供参考，根据客户提供的文件整理；一切以保险公司正式保单条款为准。建议标准为一般参考 (人寿 ${b.life_x}× 年收入、重病 ${b.ci_x}× 年收入、医药卡 ≥ ${rm(b.med_min)}、意外 ≥ ${rm(b.pa_min)}、保费 ≤ ${Math.round(b.prem_max*100)}% 年收入)，需按客户情况调整。For reference only; the insurer's policy contract prevails.`;
+}
+// ---------- edit grid ----------
+const EDIT = [
+  ['保费 Premium (RM)', p=>p.premium.amount, (p,v)=>p.premium.amount=num(v), 'n'],
+  ['缴费方式 Mode', p=>p.premium.mode||'', (p,v)=>p.premium.mode=v||null, 'mode'],
+  ['缴费日 Due day (1-31)', p=>p.premium.due_day, (p,v)=>{const n=num(v); p.premium.due_day=n>=1&&n<=31?n:null;}, 'n'],
+  ['生效日期 Start (YYYY-MM-DD)', p=>p.effective_date||'', (p,v)=>p.effective_date=date(v), 't'],
+  ['人寿 Life/TPD (RM)', p=>p.life, (p,v)=>p.life=num(v), 'n'],
+  ['一般重病 CI (RM)', p=>p.ci==null?null:ciGeneral(p), (p,v)=>{const n=num(v); const spec=(p.ci||[]).filter(c=>c.kind==='specific'); p.ci = n==null&&!spec.length?null:[...(n?[{amount:n,desc:'一般重病',kind:'general'}]:[]),...spec];}, 'n'],
+  ['医药卡年度限额 (RM, 0=没有)', p=>p.medical===false?0:(p.medical?p.medical.annual_limit:null), (p,v)=>{const n=num(v); if(n===0) p.medical=false; else if(n==null) p.medical=null; else p.medical=Object.assign({}, p.medical||{}, {annual_limit:n});}, 'n'],
+  ['意外死亡 PA (RM)', p=>p.accident===false?0:(p.accident?p.accident.death:null), (p,v)=>{const n=num(v); p.accident = Object.assign({}, p.accident||{}, {death:n});}, 'n'],
+  ['免缴交 Waiver', p=>p.waiver===true?'yes':p.waiver===false?'no':'', (p,v)=>p.waiver=v==='yes'?true:v==='no'?false:null, 'yn'],
+  ['受益人 Beneficiary', p=>p.beneficiary||'', (p,v)=>p.beneficiary=v.trim()||null, 't'],
+];
+function renderEdit(){
+  const sc = DATA.scenarios[scIdx], P = sc.policies;
+  let h = `<table><tr><th>${esc(sc.label)}</th>${P.map(p=>`<th>${esc(p.name)}</th>`).join('')}</tr>`;
+  EDIT.forEach(([l,get,,t],ri) => {
+    h += `<tr><td class="lbl">${l}</td>${P.map((p,pi) => { const v = get(p), id = `ed-${scIdx}-${ri}-${pi}`;
+      if (t==='mode') return `<td><select id="${id}" data-r="${ri}" data-p="${pi}"><option value="">?</option>${Object.keys(MODES).map(k=>`<option value="${k}" ${v===k?'selected':''}>${MODES[k].zh} ${k}</option>`).join('')}</select></td>`;
+      if (t==='yn') return `<td><select id="${id}" data-r="${ri}" data-p="${pi}"><option value="">?</option><option value="yes" ${v==='yes'?'selected':''}>有</option><option value="no" ${v==='no'?'selected':''}>没有</option></select></td>`;
+      return `<td><input id="${id}" data-r="${ri}" data-p="${pi}" ${t==='n'?'inputmode="decimal"':''} value="${esc(v ?? '')}" placeholder="未知"></td>`; }).join('')}</tr>`;
+  });
+  $('editGrid').innerHTML = h + '</table>';
+  $('editGrid').querySelectorAll('input,select').forEach(el => el.onchange = () => {
+    EDIT[+el.dataset.r][2](DATA.scenarios[scIdx].policies[+el.dataset.p], el.value);
+    DATA.meta.sample = false; renderAll(false);
+  });
+}
+function renderAll(withEdit = true){
+  const sc = DATA.scenarios[scIdx];
+  renderHeader(); renderSummary(sc); renderBenefits(sc); renderCalendar(sc); renderGap(); renderRest();
+  if (withEdit) renderEdit();
+}
+
+// ---------- copy / save ----------
+function buildCopy(){
+  const sc = DATA.scenarios[scIdx], g = gapFor(sc), c = DATA.client||{};
+  const L = [`*保单检视摘要 — ${c.name||''}* (${sc.label})`];
+  sc.policies.forEach(p => L.push(`• ${p.name}: 人寿 ${rm(p.life)||'?'}，重病 ${rm(ciGeneral(p))||'—'}，医药卡 ${p.medical&&isNum(p.medical.annual_limit)?rm(p.medical.annual_limit)+'/年':'无'}，保费 ${premTxt(p)||'?'}`));
+  L.push(`每月保费合计: ${rm(sumMonthly(sc))}`);
+  g.filter(x => x.gap).forEach(x => L.push(`⚠ ${x.label.split(' ')[0]} 缺口约 ${rm(x.gap)}`));
+  L.push('以保险公司正式条款为准。');
+  return L.join('\n');
+}
+$('copyBtn').onclick = async () => {
+  const t = buildCopy();
+  try { await navigator.clipboard.writeText(t); $('actMsg').textContent = '已复制，可以贴到 WhatsApp'; $('copyFallback').hidden = true; }
+  catch { $('copyFallback').value = t; $('copyFallback').hidden = false; $('copyFallback').select(); $('actMsg').textContent = '请手动复制下面的文字'; }
+};
+let downloads = null;
+$('saveBtn').onclick = async () => {
+  const css = $('appcss').textContent + '.noexport{display:none!important}';
+  const secs = [...document.querySelectorAll('.wrap > section')].filter(s => !s.classList.contains('noexport') && !s.hidden).map(s => s.outerHTML).join('');
+  const name = (DATA.client.name || '客户').replace(/[\\/:*?"<>|]/g,'');
+  const html = `<!doctype html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(name)} 保单摘要</title><style>${css}</style></head><body><div class="wrap">${secs}</div></body></html>`;
+  const filename = `${name} 保单摘要 ${DATA.meta.report_date}.html`;
+  if (!downloads) { // ordinary website (GitHub Pages): plain browser download
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([html], {type:'text/html'})); a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    $('actMsg').textContent = '已下载。用浏览器打开后可以打印或另存 PDF。'; return;
+  }
+  try { await downloads.save({filename, data:html}); $('actMsg').textContent = '已下载。用浏览器打开后可以打印或另存 PDF。'; }
+  catch (e) { $('actMsg').textContent = e && e.code === 'declined' ? '已取消下载' : '这里无法下载，请改用复制摘要。'; }
+};
+// recent (this device only)
+function loadRecent(){ try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); } catch { return []; } }
+function saveRecent(list){ try { localStorage.setItem(RECENT_KEY, JSON.stringify(list)); return true; } catch { return false; } }
+function renderRecent(){
+  const list = loadRecent();
+  $('recent').innerHTML = list.length ? list.map((r,i) => `<div class="item"><span><b>${esc(r.name)}</b> <span class="muted small">${esc(r.date)}</span></span><span><button class="linkbtn" data-open="${i}">打开</button><button class="linkbtn danger" data-del="${i}">删除</button></span></div>`).join('')
+    : '<p class="muted small" style="margin:0">还没有记录。完成一份检视后按「存到最近记录」。</p>';
+  $('recent').querySelectorAll('[data-open]').forEach(b => b.onclick = () => { const r = loadRecent()[+b.dataset.open]; if (!r) return; DATA = normData(r.data); DATA.meta.sample = false; scIdx = 0; income = DATA.client.monthly_income; $('inc').value = income || ''; renderAll(); $('report').scrollIntoView({behavior:'smooth'}); });
+  $('recent').querySelectorAll('[data-del]').forEach(b => b.onclick = () => {
+    if (b.dataset.armed) { const l = loadRecent(); l.splice(+b.dataset.del,1); saveRecent(l); renderRecent(); }
+    else { b.dataset.armed = '1'; b.textContent = '确定删除?'; setTimeout(() => { if (b.isConnected) { delete b.dataset.armed; b.textContent = '删除'; } }, 4000); } });
+}
+$('keepBtn').onclick = () => {
+  if (DATA.meta.sample) { $('actMsg').textContent = '这是示例，不需要存。'; return; }
+  const list = loadRecent().filter(r => !(r.name === DATA.client.name && r.date === DATA.meta.report_date));
+  DATA.client.monthly_income = income;
+  list.unshift({name: DATA.client.name || '客户', date: DATA.meta.report_date, data: DATA});
+  $('actMsg').textContent = saveRecent(list.slice(0,20)) ? '已存到这部装置' : '这个浏览器不允许储存';
+  renderRecent();
+};
+
+// ---------- upload ----------
+function renderChips(){
+  $('chips').innerHTML = files.map((f,i) => `<span class="chip"><span>${esc(f.name)}</span><button aria-label="移除 ${esc(f.name)}" data-i="${i}">×</button></span>`).join('');
+  $('chips').querySelectorAll('button').forEach(b => b.onclick = () => { files.splice(+b.dataset.i,1); renderChips(); });
+}
+function addFiles(list){ for (const f of list) if (!files.some(x => x.name === f.name && x.size === f.size)) files.push(f); renderChips(); }
+$('drop').onclick = () => $('file').click();
+$('drop').onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('file').click(); } };
+$('file').onchange = e => { addFiles(e.target.files); e.target.value = ''; };
+['dragenter','dragover'].forEach(t => $('drop').addEventListener(t, e => { e.preventDefault(); $('drop').classList.add('over'); }));
+['dragleave','drop'].forEach(t => $('drop').addEventListener(t, e => { e.preventDefault(); $('drop').classList.remove('over'); }));
+$('drop').addEventListener('drop', e => addFiles(e.dataTransfer.files));
+document.addEventListener('paste', e => { if (e.clipboardData && e.clipboardData.files.length && !/TEXTAREA|INPUT/.test(document.activeElement.tagName)) addFiles(e.clipboardData.files); });
+
+function loadScript(src){ return new Promise((res,rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('无法载入 ' + src)); document.head.appendChild(s); }); }
+async function ensurePdf(){ if (!window.pdfjsLib) { await loadScript(PDFJS); await loadScript(PDFWORKER); window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFWORKER; } return window.pdfjsLib; }
+async function ensureXlsx(){ if (!window.XLSX) await loadScript(XLSXJS); return window.XLSX; }
+function setStatus(t, err){ $('status').textContent = t; $('status').classList.toggle('err', !!err); }
+function stepErr(step, e, fix){ const x = new Error(`${step}失败${e && e.message ? ' (' + e.message + ')' : ''}${fix ? '。' + fix : ''}`); x.step = step; return x; }
+
+// How likely a page holds the figures we need (schedule / benefit table / premium page).
+const KEY_RE = /sum (assured|insured|covered)|premium|policy schedule|schedule of benefits|benefit|life assured|insured person|commencement|effective date|maturity|rider|deductible|annual limit|lifetime limit|room (and|&) board|waiver|beneficiar|nominee|保费|保额|保障|利益|受保|投保人|生效|附加|医药|住院|房费|年度限额|自付|受益人|免缴/gi;
+function pageScore(t){ const k = (t.match(KEY_RE) || []).length, rm = (t.match(/RM\s?[\d,]{3,}/gi) || []).length; return k * 2 + rm * 3; }
+async function renderPage(page){
+  const vp = page.getViewport({scale: 1.6}), cv = document.createElement('canvas');
+  cv.width = Math.min(vp.width, 2400); cv.height = Math.min(vp.height, 3400);
+  const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+  await page.render({canvasContext: ctx, viewport: vp}).promise;
+  return await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.85));
+}
+const TEXT_BUDGET = 120000;
+// [3,4,5,9,11,12] -> "第3–5、9、11–12页"
+function rangeTxt(a){ const r = []; for (let i = 0; i < a.length; i++) { let j = i; while (j + 1 < a.length && a[j+1] === a[j] + 1) j++; r.push(j > i ? `${a[i]}–${a[j]}` : `${a[i]}`); i = j; } return '第' + r.join('、') + '页'; }
+
+async function collect(imgLimits){
+  const texts = [], images = [], notes = [];
+  const maxImg = imgLimits ? imgLimits.maxCount : 0, types = imgLimits ? imgLimits.mediaTypes : [];
+  const pdfFiles = files.filter(f => f.name.toLowerCase().endsWith('.pdf') || f.type === 'application/pdf');
+  const directImgs = files.filter(f => f.type.startsWith('image/'));
+  // Photos the user picked come first; the rest of the image budget goes to the best PDF pages.
+  let pdfImgBudget = Math.max(0, maxImg - Math.min(directImgs.length, maxImg));
+  const perPdf = pdfFiles.length ? Math.max(1, Math.floor(pdfImgBudget / pdfFiles.length)) : 0;
+
+  for (const f of files) {
+    const name = f.name, low = name.toLowerCase();
+    if (pdfFiles.includes(f)) {
+      setStatus(`正在打开 ${name}…`);
+      let lib;
+      try { lib = await ensurePdf(); } catch (e) { throw stepErr('载入 PDF 阅读器', e, '请把 PDF 的保单资料页截图 (PNG/JPG) 再上传'); }
+      let pdf;
+      try { pdf = await lib.getDocument({data: new Uint8Array(await f.arrayBuffer()), isEvalSupported: false, disableFontFace: true, useSystemFonts: false}).promise; }
+      catch (e) { notes.push(`${name}: 打不开 (${e && (e.name === 'PasswordException' ? '有密码保护' : e.message)})，请截图上传`); continue; }
+      // Pass 1: text of every page, scored.
+      const pages = [];
+      for (let i = 1; i <= pdf.numPages; i++) {
+        if (i % 5 === 1) setStatus(`正在扫描 ${name} 第 ${i}/${pdf.numPages} 页…`);
+        let pt = '';
+        try { const page = await pdf.getPage(i); const tc = await page.getTextContent(); pt = tc.items.map(it => it.str + (it.hasEOL ? '\n' : ' ')).join('').replace(/[ \t]+/g, ' '); } catch (e) {}
+        pages.push({i, text: pt, score: pageScore(pt), blank: pt.trim().length < 80});
+      }
+      // Pass 2: images of the most relevant pages (page 1 always: it is often the policy schedule).
+      const want = Math.min(perPdf, pdfImgBudget);
+      const ranked = [...pages].sort((a, b) => b.score - a.score || a.i - b.i);
+      const pick = [];
+      if (want > 0) pick.push(1);
+      for (const p of ranked) { if (pick.length >= want) break; if (!pick.includes(p.i) && p.score > 0) pick.push(p.i); }
+      // A fully scanned PDF (no text anywhere): take its first pages.
+      if (pages.every(p => p.blank)) for (let i = 1; i <= pdf.numPages && pick.length < want; i++) if (!pick.includes(i)) pick.push(i);
+      pick.sort((a, b) => a - b);
+      const got = [];
+      for (const i of pick) {
+        setStatus(`正在准备 ${name} 第 ${i} 页图片…`);
+        try { const b = await renderPage(await pdf.getPage(i)); if (b) { images.push(b); got.push(i); pdfImgBudget--; } } catch (e) {}
+      }
+      // Text: relevant pages first, in page order, within the budget.
+      const keep = pages.filter(p => !p.blank && (p.score > 0 || p.i <= 3));
+      const used = new Set();
+      let txt = '', room = Math.floor(TEXT_BUDGET / Math.max(1, pdfFiles.length));
+      for (const p of [...keep].sort((a, b) => b.score - a.score || a.i - b.i)) {
+        const chunk = `\n--- ${name} 第${p.i}页 ---\n${p.text}`;
+        if (chunk.length > room) continue; room -= chunk.length; used.add(p.i);
+      }
+      pages.filter(p => used.has(p.i)).forEach(p => txt += `\n--- ${name} 第${p.i}页 ---\n${p.text}`);
+      texts.push(txt || `\n--- ${name} ---\n(没有文字层，请看图片)`);
+      // One summary line per file instead of one per page.
+      const unread = pages.filter(p => p.blank && !got.includes(p.i)).map(p => p.i);
+      const summary = `${name}: 共 ${pdf.numPages} 页。Claude 看了第 ${got.join('、') || '—'} 页的图片，和 ${used.size} 页文字 (挑有保额/保费的页)。`;
+      if (unread.length) notes.push(summary + ` 有 ${unread.length} 页是扫描图或空白页 (${rangeTxt(unread)}) 没读到；如果保额、保费在这些页，请把那几页截图上传。`);
+      else if (used.size < pages.filter(p => !p.blank).length) notes.push(summary + ' 其他条款页已略过。');
+    } else if (/\.(xlsx|xls)$/.test(low)) {
+      setStatus(`正在读取 ${name}…`);
+      const X = await ensureXlsx(); const wb = X.read(new Uint8Array(await f.arrayBuffer()), {type:'array', cellDates:true});
+      texts.push(wb.SheetNames.map(n => `\n--- ${name} / ${n} ---\n` + X.utils.sheet_to_csv(wb.Sheets[n], {dateNF:'yyyy-mm-dd'})).join(''));
+    } else if (/\.(csv|txt)$/.test(low)) {
+      texts.push(`\n--- ${name} ---\n` + await f.text());
+    } else if (f.type.startsWith('image/')) {
+      if (!maxImg) notes.push(`${name}: 这里无法传送图片给 Claude`);
+      else if (!types.includes(f.type)) notes.push(`${name}: 不支援这个图片格式，请用 JPG 或 PNG (iPhone 照片请先截图)`);
+      else if (images.length >= maxImg) notes.push(`${name}: 图片太多 (一次最多 ${maxImg} 张)，这张没读`);
+      else images.push(f);
+    } else notes.push(`${name}: 不支援的文件类型`);
+  }
+  const pasted = $('paste').value.trim(); if (pasted) texts.push('\n--- 贴上的文字 ---\n' + pasted);
+  let all = texts.join('\n'); if (all.length > 120000) { all = all.slice(0, 120000); notes.push('文字太长，只读了前面部分'); }
+  return {text: all, images, notes};
+}
+
+function buildPrompt(text, nImages, attachedDocs){
+  const name = $('cName').value.trim(), inc = num($('cIncome').value);
+  const att = attachedDocs ? `${nImages} documents/images are attached above (policy PDFs and/or photos); long contracts mostly hold terms and conditions, so find the policy schedule, benefit tables and premium pages.` : (nImages ? `There are ${nImages} attached images: rendered PDF pages and/or photos of the same documents; use them to read table layouts correctly.` : '');
+  return `You are an assistant to a licensed insurance advisor in Malaysia. Read the client's insurance documents (policy schedules, benefit illustrations, advisor comparison sheets, screenshots) and extract every policy into JSON. ${att}
+
+Reply with ONLY one JSON object, shape:
+{"client":{"name":string|null,"age":number|null,"gender":"F"|"M"|null},
+ "meta":{"sources":[file names]},
+ "scenarios":[{"id":"current","label":"现有保单 Current","policies":[POLICY,...]}  (add {"id":"proposed","label":"调整后 Proposed",...} ONLY if the document itself shows a restructured / 调整后 / proposed / after version)],
+ "advisor_recommendations":[strings copied from the document's own advice / 建议, in its language],
+ "to_confirm":[{"item":string,"why":string}]  (in Simplified Chinese)}
+POLICY = {"name":plan or product name,"insurer":string|null,"policy_no_last4":last 4 digits only|null,"type":string|null,
+ "effective_date":"YYYY-MM-DD"|null,"owner":string|null,"insured":string|null,"beneficiary":string|null,
+ "premium":{"amount":number|null,"mode":"monthly"|"quarterly"|"half-yearly"|"yearly"|null,"due_day":number|null},
+ "life":number|null (death/TPD sum assured, RM),
+ "ci":[{"amount":number,"desc":string,"kind":"general"|"specific"}]|null ("specific" = women's/children's/early-stage-only riders),
+ "medical":{"annual_limit":number|null,"lifetime_limit":string|null,"room_board":string|null,"pre_post":string|null,"deductible":number|null,"panel":string|null,"name":string|null}|false|null,
+ "hospital_income":string|null,"waiver":true|false|null,
+ "accident":{"death":number|null,"disability":number|null,"medical":string|null,"weekly_indemnity":string|null}|false|null,
+ "other":[strings]}
+
+Rules:
+- This review format holds at most ${MAX_POL} policies per scenario. If there are more, list the ${MAX_POL} most important first (medical card and life/CI policies before small riders), still include the rest after them so the app can flag them.
+- Copy figures exactly as written. Money as plain numbers in RM (60000, not "RM60,000"). Text fields keep the document's wording.
+- null = not found or unclear. false / 0 / [] = the document clearly shows it is not covered. A blank cell in a comparison table where another column has a value means not covered (use 0/false/""), but add one to_confirm note saying blanks were treated as not covered.
+- NEVER guess or estimate. If something is blurry, contradictory (e.g. the advice text and the table disagree) or ambiguous, use null and add a to_confirm item saying exactly what and where.
+- due_day only if the document states the payment day.
+- PRIVACY: never output IC/NRIC numbers or full policy numbers. Age may be derived from an IC (YYMMDD) as of ${todayISO()}.
+${name ? `- The advisor says the client's name is: ${name}\n` : ''}${inc ? `- Monthly income provided by the advisor: RM${inc}\n` : ''}
+DOCUMENT TEXT:
+${text || '(no text layer; read the images)'}`;
+}
+
+// ---------- API-key mode (when the page runs outside claude.ai, e.g. GitHub Pages) ----------
+const SDK_URL = "https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@1.6.0/+esm";
+const MODEL = "claude-opus-5-5";
+const KEY_STORE = 'policySummary.apiKey';
+let apiMode = false;
+function storedKey(){ try { return localStorage.getItem(KEY_STORE) || ''; } catch { return ''; } }
+function rememberKey(k){ try { if ($('keyRemember').checked && k) localStorage.setItem(KEY_STORE, k); else localStorage.removeItem(KEY_STORE); } catch {} }
+$('keyToggle').onclick = () => { const i = $('apiKey'); i.type = i.type === 'password' ? 'text' : 'password'; $('keyToggle').textContent = i.type === 'password' ? '显示' : '隐藏'; };
+const fileB64 = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = () => rej(r.error); r.readAsDataURL(f); });
+// Shrink a photo that is over the API's per-image limits (5 MB, 8000 px a side).
+async function imageBlock(f){
+  let blob = f, type = f.type;
+  const bmp = await createImageBitmap(f).catch(() => null);
+  if (bmp && (f.size > 4.5e6 || bmp.width > 7900 || bmp.height > 7900)) {
+    const s = Math.min(1, 2600 / Math.max(bmp.width, bmp.height)), cv = document.createElement('canvas');
+    cv.width = Math.round(bmp.width * s); cv.height = Math.round(bmp.height * s);
+    cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
+    blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.85)); type = 'image/jpeg';
+  }
+  return {type:'image', source:{type:'base64', media_type:type, data: await fileB64(blob)}};
+}
+function parseJsonReply(t){
+  const fence = /```(?:json)?\s*([\s\S]*?)```/.exec(t); if (fence) t = fence[1];
+  const a = t.indexOf('{'), b = t.lastIndexOf('}'); if (a < 0 || b < a) throw Object.assign(new Error('no JSON'), {code:'invalid_json'});
+  return JSON.parse(t.slice(a, b + 1));
+}
+async function readViaApi(){
+  const key = $('apiKey').value.trim();
+  if (!/^sk-ant-/.test(key)) { setStatus('请先贴上你的 Anthropic API key (sk-ant- 开头)。', true); $('apiKey').focus(); return null; }
+  rememberKey(key);
+  setStatus('正在载入…');
+  let Anthropic;
+  try { Anthropic = (await import(SDK_URL)).default; } catch (e) { throw stepErr('载入 Claude 连接', e, '请检查网络后再试'); }
+  const client = new Anthropic({apiKey: key, dangerouslyAllowBrowser: true});
+  const content = [], texts = [], notes = [];
+  let pdfBytes = 0, nImg = 0;
+  for (const f of files) {
+    const low = f.name.toLowerCase();
+    setStatus(`正在准备 ${f.name}…`);
+    if (low.endsWith('.pdf') || f.type === 'application/pdf') {
+      pdfBytes += f.size;
+      if (pdfBytes > 22e6) { notes.push(`${f.name}: 文件太大没读，请只上传保单资料页`); continue; }
+      content.push({type:'document', source:{type:'base64', media_type:'application/pdf', data: await fileB64(f)}, title: f.name});
+    } else if (/\.(xlsx|xls)$/.test(low)) {
+      const X = await ensureXlsx(); const wb = X.read(new Uint8Array(await f.arrayBuffer()), {type:'array', cellDates:true});
+      texts.push(wb.SheetNames.map(n => `\n--- ${f.name} / ${n} ---\n` + X.utils.sheet_to_csv(wb.Sheets[n], {dateNF:'yyyy-mm-dd'})).join(''));
+    } else if (/\.(csv|txt)$/.test(low)) texts.push(`\n--- ${f.name} ---\n` + await f.text());
+    else if (/^image\/(jpeg|png|webp|gif)$/.test(f.type)) { if (nImg >= 20) { notes.push(`${f.name}: 图片太多，这张没读`); continue; } content.push(await imageBlock(f)); nImg++; }
+    else notes.push(`${f.name}: 不支援这个格式，请用 PDF、JPG、PNG 或 Excel`);
+  }
+  const pasted = $('paste').value.trim(); if (pasted) texts.push('\n--- 贴上的文字 ---\n' + pasted);
+  if (!content.length && !texts.length) { setStatus('读不到任何内容：' + (notes.join('；') || '请放入文件。'), true); return null; }
+  content.push({type:'text', text: buildPrompt(texts.join('\n'), content.length, true)});
+  setStatus(`Claude 正在读取保单… 通常 30–120 秒`);
+  const stream = client.beta.messages.stream({
+    model: MODEL, max_tokens: 32000,
+    betas: ["server-side-fallback-2026-07-01"], fallbacks: "default",
+    output_config: {effort: "medium"},
+    messages: [{role:'user', content}],
+  }, {signal: ctl.signal});
+  let n = 0; stream.on('text', d => { n += d.length; setStatus(`Claude 正在整理… ${n} 字`); });
+  let msg;
+  try { msg = await stream.finalMessage(); }
+  catch (e) {
+    if (ctl.signal.aborted) throw {code:'cancelled'};
+    const known = m => Object.assign(new Error(m), {known: true});
+    if (e instanceof Anthropic.AuthenticationError) throw known('API key 不正确或已失效，请检查后再贴一次。');
+    if (e instanceof Anthropic.PermissionDeniedError) throw known('这个 API key 没有使用权限。');
+    if (e instanceof Anthropic.RateLimitError) throw known('使用太频繁或额度用完，请稍后再试，或到 console.anthropic.com 充值。');
+    if (e instanceof Anthropic.BadRequestError) throw known(/credit|balance/i.test(e.message) ? 'API 额度不足，请到 console.anthropic.com 充值。' : '文件无法处理 (' + e.message + ')，请只上传保单资料页。');
+    if (e instanceof Anthropic.APIConnectionError) throw known('连不上 Claude，请检查网络。');
+    throw e;
+  }
+  if (msg.stop_reason === 'refusal') throw {code:'refused'};
+  if (msg.stop_reason === 'max_tokens') notes.push('回覆太长被截断，部分保单可能没读完');
+  const out = parseJsonReply(msg.content.filter(b => b.type === 'text').map(b => b.text).join(''));
+  return {out, notes};
+}
+
+let sample = null;
+$('readBtn').onclick = async () => {
+  if (apiMode) return runRead(readViaApi);
+  if (!sample) { setStatus('正在连接 Claude…'); sample = await samplePromise; }
+  if (!sample) { apiMode = true; $('keyBox').hidden = false; setStatus('这里不是 claude.ai，请贴上 API key 后再按一次。', true); return; }
+  return runRead(readViaSample);
+};
+async function readViaSample(){
+  const lim = await sample.limits().catch(() => null);
+  const {text, images, notes} = await collect(lim && lim.images);
+  if (!text.replace(/---[^\n]*---/g, '').trim() && !images.length) { setStatus('读不到任何内容：' + (notes.join('；') || '请把保单页面截图后上传。'), true); return null; }
+  setStatus(`Claude 正在读取保单 (${images.length} 张页面图 + 文字)… 通常 20–90 秒；第一次会请你允许`);
+  const opts = imgs => Object.assign({signal: ctl.signal, onText: ({text}) => setStatus(`Claude 正在整理… ${text.length} 字`)}, imgs.length ? {images: imgs} : {});
+  let out;
+  try { out = await sample.json(buildPrompt(text, images.length), opts(images)); }
+  catch (e) {
+    // Images refused in this view: try once more with the text only, if there is text.
+    if (images.length && ['images_unavailable','image_rejected','prompt_too_large'].includes(e && e.code) && text.trim().length > 200) {
+      notes.push('页面图片无法传送，只用了文字读取，表格可能对错栏，请仔细检查');
+      setStatus('图片无法传送，改用文字读取…');
+      out = await sample.json(buildPrompt(text, 0), opts([]));
+    } else throw e;
+  }
+  return {out, notes};
+}
+async function runRead(reader){
+  if (!files.length && !$('paste').value.trim()) { setStatus('请先放入文件或贴上文字。', true); return; }
+  $('readBtn').disabled = true; $('stopBtn').hidden = false; ctl = new AbortController();
+  try {
+    const r = await reader(); if (!r) return;
+    const {out, notes} = r;
+    const d = normData(out);
+    if (!d.scenarios.length) { setStatus('文件里找不到保单资料。请检查文件是否正确，或贴上文字再试。', true); return; }
+    d.meta.report_date = todayISO(); d.meta.sources = files.map(f => f.name).concat($('paste').value.trim() ? ['贴上的文字'] : []); d.meta.sample = false;
+    if ($('cName').value.trim()) d.client.name = $('cName').value.trim();
+    const inc = num($('cIncome').value); if (inc) d.client.monthly_income = inc;
+    notes.forEach(n => d.to_confirm.push({item:'📄 ' + n, why:''}));
+    DATA = d; scIdx = 0; income = d.client.monthly_income || null; $('inc').value = income || '';
+    renderAll();
+    setStatus(`完成：读到 ${d.scenarios[0].policies.length} 份保单。请检查黄色格子和「需确认资料」。`);
+    $('report').scrollIntoView({behavior:'smooth'});
+  } catch (e) {
+    const msg = {cancelled:'已停止。', not_granted:'你没有允许这个页面使用 Claude。重新打开页面后可以再允许。', rate_limited:'使用次数暂时达到上限，请稍后再试。', session_expired:'请重新登入 Claude。',
+      image_rejected:'有图片无法读取，请换成 JPG/PNG 再试。', invalid_json:'Claude 的回覆格式不对，请再按一次读取。', prompt_too_large:'文件太大，请分开上传。', refused:'Claude 无法处理这份内容。', sampling_disabled:'这个帐号无法使用 Claude。'}[e && e.code];
+    setStatus(msg ? `${msg} [${e.code}]` : e && e.known ? e.message : ('读取失败：' + (e && (e.message || e.code) || '未知错误') + (e && e.code ? ` [${e.code}]` : '') + '。请截图这句话给我。'), true);
+    try { console.error('policy-summary read failed', e); } catch {}
+  } finally { $('readBtn').disabled = false; $('stopBtn').hidden = true; }
+}
+$('stopBtn').onclick = () => ctl && ctl.abort();
+
+// ---------- boot ----------
+$('inc').oninput = e => { const v = parseFloat(e.target.value); income = v > 0 ? v : null; renderGap(); };
+renderAll(); renderRecent();
+const samplePromise = (async () => { try { return (await window.claude?.use?.('sample')) || null; } catch { return null; } })();
+(async () => {
+  sample = await samplePromise;
+  if (!sample) { apiMode = true; $('keyBox').hidden = false; $('apiKey').value = storedKey(); }
+  try { downloads = await window.claude?.use?.('downloads'); } catch { downloads = null; }
+  $('saveBtn').hidden = !downloads && !apiMode;
+})();
+</script>
+
+</body>
+</html>
