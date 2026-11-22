@@ -13,17 +13,17 @@ If the documents include a restructured (调整后) version, current and propose
 ## How to use
 
 1. Open the site.
-2. Paste your **Anthropic API key** (create one at console.anthropic.com → API Keys). It is kept only in your own browser and sent only to Anthropic.
+2. Paste your **OpenAI API key** (create one at platform.openai.com → API keys, and add credit under Billing). It is kept only in your own browser and sent only to OpenAI. The model defaults to `gpt-5`, and you can change it in the **模型 Model** box.
 3. Upload policy PDFs, photos/screenshots (JPG/PNG) or Excel, or paste text.
 4. Tap **读取保单 Read policies**, then check the yellow cells. Fix anything under **修改数字 Edit figures**.
 5. **复制摘要** copies a WhatsApp summary. **下载报告** saves the report as an HTML file you can print to PDF.
 
-Cost: each review is billed to your own API key, usually about RM0.50–2 depending on document size.
+Cost: each review is billed to your own OpenAI key at OpenAI's rates, depending on document size and model.
 
 ## Privacy
 
 - Everything runs in your browser. There is no server and nothing is stored on GitHub.
-- Documents go only to Anthropic's API, to be read.
+- Documents go only to OpenAI's API, to be read.
 - The app drops IC numbers and keeps only the last 4 digits of each policy number.
 - "Recent reviews" are saved only on the device you use.
 

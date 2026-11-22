@@ -119,11 +119,12 @@ details.edit input,details.edit select{width:100%;padding:4px 6px}
       <label class="f">月收入 Monthly income (RM，用来计算人寿/重病建议额)<input id="cIncome" type="number" min="0" step="100" placeholder="不知道可留空"></label>
     </div>
     <div id="keyBox" class="apikey" hidden>
-      <label class="f">Anthropic API key (只存在你的浏览器，不会上传到别处)
-        <span class="row" style="gap:6px"><input id="apiKey" type="password" autocomplete="off" placeholder="sk-ant-..." style="flex:1;min-width:200px"><button class="btn" id="keyToggle" type="button">显示</button></span>
+      <label class="f">OpenAI API key (只存在你的浏览器，只会传送给 OpenAI)
+        <span class="row" style="gap:6px"><input id="apiKey" type="password" autocomplete="off" placeholder="sk-..." style="flex:1;min-width:200px"><button class="btn" id="keyToggle" type="button">显示</button></span>
       </label>
       <label class="row small muted" style="gap:6px;margin-top:6px"><input type="checkbox" id="keyRemember" checked> 记住这部装置 (下次不用再贴)</label>
-      <p class="small muted" style="margin:6px 0 0">还没有 key？到 <b>console.anthropic.com</b> → API Keys 建立一个，并充值少量额度。每份检视大约 RM0.50–2，按文件大小计。</p>
+      <label class="f" style="margin-top:8px">模型 Model (一般不用改)<input id="apiModel" type="text" autocomplete="off" spellcheck="false"></label>
+      <p class="small muted" style="margin:6px 0 0">还没有 key？到 <b>platform.openai.com</b> → API keys 建立一个，并在 Billing 充值少量额度。费用按 OpenAI 收费，视文件大小而定。</p>
     </div>
     <label class="f" style="margin-top:12px">贴上文字 (网页链接内容、WhatsApp 讯息、保单资料)<textarea id="paste" placeholder="链接无法直接打开：请打开网页，复制内容后贴在这里。"></textarea></label>
     <div class="row" style="margin-top:12px">
@@ -667,9 +668,11 @@ ${text || '(no text layer; read the images)'}`;
 }
 
 // ---------- API-key mode (when the page runs outside claude.ai, e.g. GitHub Pages) ----------
-const SDK_URL = "https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@1.6.0/+esm";
-const MODEL = "claude-opus-5-5";
-const KEY_STORE = 'policySummary.apiKey';
+// OpenAI Responses API, called straight from the browser with the viewer's own key.
+const OPENAI_URL = "https://api.openai.com/v1/responses";
+const DEFAULT_MODEL = "gpt-5";
+const KEY_STORE = 'policySummary.openaiKey', MODEL_STORE = 'policySummary.openaiModel';
+function storedModel(){ try { return localStorage.getItem(MODEL_STORE) || DEFAULT_MODEL; } catch { return DEFAULT_MODEL; } }
 let apiMode = false;
 function storedKey(){ try { return localStorage.getItem(KEY_STORE) || ''; } catch { return ''; } }
 function rememberKey(k){ try { if ($('keyRemember').checked && k) localStorage.setItem(KEY_STORE, k); else localStorage.removeItem(KEY_STORE); } catch {} }
@@ -685,7 +688,7 @@ async function imageBlock(f){
     cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
     blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.85)); type = 'image/jpeg';
   }
-  return {type:'image', source:{type:'base64', media_type:type, data: await fileB64(blob)}};
+  return {type:'input_image', image_url:`data:${type};base64,${await fileB64(blob)}`, detail:'high'};
 }
 function parseJsonReply(t){
   const fence = /```(?:json)?\s*([\s\S]*?)```/.exec(t); if (fence) t = fence[1];
@@ -693,13 +696,10 @@ function parseJsonReply(t){
   return JSON.parse(t.slice(a, b + 1));
 }
 async function readViaApi(){
-  const key = $('apiKey').value.trim();
-  if (!/^sk-ant-/.test(key)) { setStatus('请先贴上你的 Anthropic API key (sk-ant- 开头)。', true); $('apiKey').focus(); return null; }
+  const key = $('apiKey').value.trim(), model = $('apiModel').value.trim() || DEFAULT_MODEL;
+  if (!/^sk-/.test(key) || key.length < 20) { setStatus('请先贴上你的 OpenAI API key (sk- 开头)。', true); $('apiKey').focus(); return null; }
   rememberKey(key);
-  setStatus('正在载入…');
-  let Anthropic;
-  try { Anthropic = (await import(SDK_URL)).default; } catch (e) { throw stepErr('载入 Claude 连接', e, '请检查网络后再试'); }
-  const client = new Anthropic({apiKey: key, dangerouslyAllowBrowser: true});
+  try { if (model === DEFAULT_MODEL) localStorage.removeItem(MODEL_STORE); else localStorage.setItem(MODEL_STORE, model); } catch {}
   const content = [], texts = [], notes = [];
   let pdfBytes = 0, nImg = 0;
   for (const f of files) {
@@ -708,7 +708,7 @@ async function readViaApi(){
     if (low.endsWith('.pdf') || f.type === 'application/pdf') {
       pdfBytes += f.size;
       if (pdfBytes > 22e6) { notes.push(`${f.name}: 文件太大没读，请只上传保单资料页`); continue; }
-      content.push({type:'document', source:{type:'base64', media_type:'application/pdf', data: await fileB64(f)}, title: f.name});
+      content.push({type:'input_file', filename: f.name, file_data: `data:application/pdf;base64,${await fileB64(f)}`});
     } else if (/\.(xlsx|xls)$/.test(low)) {
       const X = await ensureXlsx(); const wb = X.read(new Uint8Array(await f.arrayBuffer()), {type:'array', cellDates:true});
       texts.push(wb.SheetNames.map(n => `\n--- ${f.name} / ${n} ---\n` + X.utils.sheet_to_csv(wb.Sheets[n], {dateNF:'yyyy-mm-dd'})).join(''));
@@ -718,30 +718,36 @@ async function readViaApi(){
   }
   const pasted = $('paste').value.trim(); if (pasted) texts.push('\n--- 贴上的文字 ---\n' + pasted);
   if (!content.length && !texts.length) { setStatus('读不到任何内容：' + (notes.join('；') || '请放入文件。'), true); return null; }
-  content.push({type:'text', text: buildPrompt(texts.join('\n'), content.length, true)});
-  setStatus(`Claude 正在读取保单… 通常 30–120 秒`);
-  const stream = client.beta.messages.stream({
-    model: MODEL, max_tokens: 32000,
-    betas: ["server-side-fallback-2026-07-01"], fallbacks: "default",
-    output_config: {effort: "medium"},
-    messages: [{role:'user', content}],
-  }, {signal: ctl.signal});
-  let n = 0; stream.on('text', d => { n += d.length; setStatus(`Claude 正在整理… ${n} 字`); });
-  let msg;
-  try { msg = await stream.finalMessage(); }
-  catch (e) {
-    if (ctl.signal.aborted) throw {code:'cancelled'};
-    const known = m => Object.assign(new Error(m), {known: true});
-    if (e instanceof Anthropic.AuthenticationError) throw known('API key 不正确或已失效，请检查后再贴一次。');
-    if (e instanceof Anthropic.PermissionDeniedError) throw known('这个 API key 没有使用权限。');
-    if (e instanceof Anthropic.RateLimitError) throw known('使用太频繁或额度用完，请稍后再试，或到 console.anthropic.com 充值。');
-    if (e instanceof Anthropic.BadRequestError) throw known(/credit|balance/i.test(e.message) ? 'API 额度不足，请到 console.anthropic.com 充值。' : '文件无法处理 (' + e.message + ')，请只上传保单资料页。');
-    if (e instanceof Anthropic.APIConnectionError) throw known('连不上 Claude，请检查网络。');
-    throw e;
+  content.push({type:'input_text', text: buildPrompt(texts.join('\n'), content.length, true) + '\n\nReturn the JSON object only.'});
+  setStatus(`AI 正在读取保单 (${model})… 通常 30–120 秒`);
+  const t0 = Date.now(), tick = setInterval(() => setStatus(`AI 正在读取保单 (${model})… 已经 ${Math.round((Date.now() - t0) / 1000)} 秒`), 1000);
+  const known = m => Object.assign(new Error(m), {known: true});
+  let res, data;
+  try {
+    res = await fetch(OPENAI_URL, {
+      method: 'POST', signal: ctl.signal,
+      headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`},
+      body: JSON.stringify({model, input: [{role: 'user', content}], text: {format: {type: 'json_object'}}, max_output_tokens: 32000}),
+    });
+    data = await res.json().catch(() => ({}));
+  } catch (e) {
+    if (ctl.signal.aborted) throw {code: 'cancelled'};
+    // OpenAI's error replies (e.g. a wrong key) lack the browser CORS header, so they surface here as a network failure.
+    throw known('OpenAI 没有回应：最常见是 API key 不正确或已删除，请到 platform.openai.com → API keys 复制一个新的再贴；也请检查网络。');
+  } finally { clearInterval(tick); }
+  if (!res.ok) {
+    const err = (data && data.error) || {}, m = err.message || `HTTP ${res.status}`;
+    if (res.status === 401) throw known('OpenAI API key 不正确或已失效，请检查后再贴一次。');
+    if (res.status === 429) throw known(err.code === 'insufficient_quota' ? 'OpenAI 额度不足，请到 platform.openai.com → Billing 充值。' : '使用太频繁，请稍后再试。');
+    if (res.status === 404 || /model/i.test(m) && res.status === 400) throw known(`模型 "${model}" 不能用 (${m})。请在「模型」栏换一个，例如 gpt-4.1。`);
+    if (res.status === 403) throw known('这个 API key 没有权限使用这个模型或功能。');
+    throw known('OpenAI 无法处理这些文件 (' + m + ')，请只上传保单资料页再试。');
   }
-  if (msg.stop_reason === 'refusal') throw {code:'refused'};
-  if (msg.stop_reason === 'max_tokens') notes.push('回覆太长被截断，部分保单可能没读完');
-  const out = parseJsonReply(msg.content.filter(b => b.type === 'text').map(b => b.text).join(''));
+  if (data.status === 'incomplete') notes.push('回覆太长被截断，部分保单可能没读完');
+  const textOut = (data.output || []).flatMap(o => o.content || []).filter(c => c.type === 'output_text').map(c => c.text).join('');
+  if ((data.output || []).some(o => (o.content || []).some(c => c.type === 'refusal'))) throw {code: 'refused'};
+  if (!textOut) throw known('AI 没有回覆内容，请再试一次。');
+  const out = parseJsonReply(textOut);
   return {out, notes};
 }
 
@@ -749,7 +755,7 @@ let sample = null;
 $('readBtn').onclick = async () => {
   if (apiMode) return runRead(readViaApi);
   if (!sample) { setStatus('正在连接 Claude…'); sample = await samplePromise; }
-  if (!sample) { apiMode = true; $('keyBox').hidden = false; setStatus('这里不是 claude.ai，请贴上 API key 后再按一次。', true); return; }
+  if (!sample) { apiMode = true; $('keyBox').hidden = false; if (!$('apiModel').value) $('apiModel').value = storedModel(); setStatus('这里不是 claude.ai，请贴上 OpenAI API key 后再按一次。', true); return; }
   return runRead(readViaSample);
 };
 async function readViaSample(){
@@ -801,7 +807,8 @@ renderAll(); renderRecent();
 const samplePromise = (async () => { try { return (await window.claude?.use?.('sample')) || null; } catch { return null; } })();
 (async () => {
   sample = await samplePromise;
-  if (!sample) { apiMode = true; $('keyBox').hidden = false; $('apiKey').value = storedKey(); }
+  try { localStorage.removeItem('policySummary.apiKey'); } catch {} // old Anthropic-key slot, no longer used
+  if (!sample) { apiMode = true; $('keyBox').hidden = false; $('apiKey').value = storedKey(); $('apiModel').value = storedModel(); }
   try { downloads = await window.claude?.use?.('downloads'); } catch { downloads = null; }
   $('saveBtn').hidden = !downloads && !apiMode;
 })();
